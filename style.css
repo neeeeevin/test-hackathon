@@ -1,0 +1,41 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #1a1a1a;
+    color: #f0f0f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    text-align: center;
+}
+
+#container {
+    padding: 20px;
+}
+
+#orientationDisplay {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: #4CAF50; /* Green */
+    transition: color 0.3s ease;
+}
+
+#permissionButton {
+    font-size: 1.2rem;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    background-color: #008CBA; /* Blue */
+    color: white;
+    cursor: pointer;
+    margin-bottom: 20px;
+}
+
+#debugInfo {
+    margin-top: 20px;
+    font-family: 'Courier New', Courier, monospace;
+    color: #888;
+}
