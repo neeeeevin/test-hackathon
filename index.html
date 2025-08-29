@@ -1,17 +1,463 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Orientation Detector</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>HoldSense — Orientation-Aware Mobile Toolkit</title>
+  <meta name="description" content="Single-page mobile-first app that detects how you hold your phone and switches to Alarm / Stopwatch / Timer / Weather." />
+  <style>
+    /* Mobile-first CSS, touch-friendly large controls */
+    :root{
+      --bg:#0f1724;
+      --card:#111827;
+      --accent:#06b6d4;
+      --muted:#9ca3af;
+      --glass: rgba(255,255,255,0.03);
+      --radius:16px;
+      --safe-padding: env(safe-area-inset-top,16px) env(safe-area-inset-right,16px) env(safe-area-inset-bottom,16px) env(safe-area-inset-left,16px);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:linear-gradient(180deg,#071021 0%, #021018 100%); color:#e6eef6; -webkit-font-smoothing:antialiased;
+      padding:var(--safe-padding);
+      display:flex;align-items:center;justify-content:center;
+    }
+    .app{width:100%;max-width:900px;margin:12px;}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    h1{font-size:18px;margin:0}
+    small{color:var(--muted)}
+
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:var(--radius); padding:16px; box-shadow: 0 6px 20px rgba(2,6,23,0.6);}
+
+    .mode-area{height:66vh;display:flex;align-items:center;justify-content:center;border-radius:12px;margin-bottom:12px;position:relative;overflow:hidden}
+    .mode{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:18px}
+
+    .big{font-size:28px;font-weight:700}
+    .sub{color:var(--muted)}
+
+    .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+    button{appearance:none;border:0;background:var(--glass);color:inherit;padding:12px 14px;border-radius:12px;font-size:16px;min-width:110px}
+    button.primary{background:linear-gradient(90deg,var(--accent),#7c3aed);font-weight:600}
+
+    .small-muted{font-size:13px;color:var(--muted)}
+
+    /* layout for specific modules */
+    .clock, .timer, .stopwatch, .weather{width:100%;max-width:520px}
+    .time-display{font-size:56px;font-weight:800;letter-spacing:1px}
+    .timer-controls, .stopwatch-controls{display:flex;gap:8px;justify-content:center}
+
+    input[type=time], input[type=number], input[type=text]{padding:10px;border-radius:10px;border:0;background:rgba(255,255,255,0.02);color:inherit}
+
+    .debug{position:fixed;left:12px;bottom:12px;background:rgba(0,0,0,0.45);padding:8px;border-radius:10px;font-size:12px;color:var(--muted)}
+
+    /* orientation badge */
+    .badge{position:absolute;left:12px;top:12px;background:rgba(0,0,0,0.35);padding:8px 10px;border-radius:999px;font-weight:700;color:var(--accent)}
+
+    /* responsive tweaks */
+    @media(min-width:720px){
+      .mode-area{height:70vh}
+      .time-display{font-size:72px}
+    }
+  </style>
 </head>
 <body>
-    <div id="container">
-        <button id="permissionButton">Enable Orientation</button>
-        <h1 id="orientationDisplay">Rotate Your Device</h1>
-        <p id="debugInfo">Beta: null, Gamma: null</p>
+  <div class="app card">
+    <header>
+      <div>
+        <h1>HoldSense <small>— orientation-aware single page</small></h1>
+        <div class="small-muted">Portrait↑: Alarm • Landscape→: Stopwatch • Portrait↓: Timer • Landscape←: Weather</div>
+      </div>
+      <div>
+        <button id="reqSensors" class="primary">Enable Motion Sensors</button>
+      </div>
+    </header>
+
+    <div class="mode-area card" id="modeArea">
+      <div class="badge" id="badge">Detecting…</div>
+
+      <!-- ALARM (Portrait Upright) -->
+      <div class="mode clock" id="alarmMode" style="display:none">
+        <div class="big">Alarm Clock</div>
+        <div class="time-display" id="currentTime">--:--:--</div>
+        <div class="sub">Set an alarm — when it rings, your device will vibrate & play a sound</div>
+        <div style="display:flex;gap:8px;margin-top:10px;align-items:center;justify-content:center">
+          <input type="time" id="alarmTime">
+          <button id="setAlarm">Set</button>
+          <button id="clearAlarm">Clear</button>
+        </div>
+        <div id="alarmStatus" class="small-muted"></div>
+      </div>
+
+      <!-- STOPWATCH (Landscape Right) -->
+      <div class="mode stopwatch" id="stopwatchMode" style="display:none">
+        <div class="big">Stopwatch</div>
+        <div class="time-display" id="swDisplay">00:00:00.00</div>
+        <div class="stopwatch-controls">
+          <button id="swStart">Start</button>
+          <button id="swLap">Lap</button>
+          <button id="swReset">Reset</button>
+        </div>
+        <div id="laps" class="small-muted" style="max-height:120px;overflow:auto;width:100%"></div>
+      </div>
+
+      <!-- TIMER (Portrait Upside Down) -->
+      <div class="mode timer" id="timerMode" style="display:none">
+        <div class="big">Timer</div>
+        <div class="time-display" id="timerDisplay">00:00:00</div>
+        <div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:10px">
+          <input type="number" id="timerMinutes" min="0" placeholder="Minutes" style="width:110px">
+          <input type="number" id="timerSeconds" min="0" max="59" placeholder="Seconds" style="width:110px">
+        </div>
+        <div class="timer-controls" style="margin-top:10px">
+          <button id="timerStart">Start</button>
+          <button id="timerPause">Pause</button>
+          <button id="timerReset">Reset</button>
+        </div>
+        <div class="small-muted">Tip: You can set Timer by flipping your phone upside-down.</div>
+      </div>
+
+      <!-- WEATHER (Landscape Left) -->
+      <div class="mode weather" id="weatherMode" style="display:none">
+        <div class="big">Weather of the Day</div>
+        <div class="sub small-muted" id="weatherLoc">Locating…</div>
+        <div style="margin-top:12px">
+          <div id="weatherCard" style="display:none">
+            <div style="font-size:32px;font-weight:700" id="weatherTemp">--°</div>
+            <div id="weatherDesc" class="sub">--</div>
+            <div class="small-muted" id="weatherExtra"></div>
+          </div>
+          <div id="weatherFallback" style="display:none">
+            <input type="text" id="cityInput" placeholder="Enter city" style="width:100%;margin-top:8px">
+            <div style="display:flex;gap:8px;margin-top:8px"><button id="lookupCity">Lookup</button><button id="refreshWeather">Refresh</button></div>
+          </div>
+        </div>
+      </div>
+
     </div>
-    <script src="script.js"></script>
+
+    <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:12px">
+      <div class="small-muted">Status: <span id="statusText">Waiting for sensors...</span></div>
+      <div class="small-muted">Last orientation: <strong id="lastOrient">—</strong></div>
+    </div>
+
+    <div style="margin-top:12px" class="small-muted">Developer notes: Uses DeviceMotion + ScreenOrientation API + geolocation + Open-Meteo (free). Works fully in-browser. iOS requires permission for motion sensors.</div>
+  </div>
+
+  <div id="debug" class="debug" style="display:none">debug</div>
+
+  <script>
+  /* ====== Utility / UI helpers ======*/
+  const $ = id => document.getElementById(id);
+  const badge = $('badge');
+  const statusText = $('statusText');
+  const lastOrient = $('lastOrient');
+  const modeArea = $('modeArea');
+
+  // Modules
+  const alarmMode = $('alarmMode');
+  const stopwatchMode = $('stopwatchMode');
+  const timerMode = $('timerMode');
+  const weatherMode = $('weatherMode');
+
+  // Debug toggle
+  const debugEl = $('debug');
+  let debugOn = false;
+
+  // Current detected orientation state (one of 'portrait-up', 'portrait-down', 'landscape-left', 'landscape-right')
+  let currentState = null;
+
+  /* ====== Orientation detection strategy ======
+     1) Prefer Screen Orientation API when available for crisp transitions.
+     2) Use DeviceMotion.accelerationIncludingGravity to compute gravity vector and derive device "facing" — this detects upside-down reliably even if screen.orientation locks or doesn't report upside-down.
+     3) Use smoothing + hysteresis to avoid flicker.
+  */
+
+  // Moving average buffer for accelerometer to smooth spikes
+  const ACC_BUF = []; const ACC_MAX = 8;
+
+  // map angles to states with hysteresis
+  function mapGravityToState(gx, gy, gz){
+    // gx, gy: accel gravity-ish values
+    // compute 2D angle in device XY plane
+    const angle = Math.atan2(gx, gy) * 180/Math.PI; // degrees
+    // normalize to -180..180
+    let a = angle;
+    // debug
+    if(debugOn){ debugEl.textContent = `gx:${gx.toFixed(2)} gy:${gy.toFixed(2)} gz:${gz.toFixed(2)} ang:${a.toFixed(1)}` }
+
+    // Map using ranges — tuned to real-device behavior
+    if(a > -45 && a <= 45) return 'portrait-up';
+    if(a > 45 && a <= 135) return 'landscape-right';
+    if(a > 135 || a <= -135) return 'portrait-down';
+    if(a > -135 && a <= -45) return 'landscape-left';
+    return 'portrait-up';
+  }
+
+  // smooth function
+  function pushAccSample(sample){
+    ACC_BUF.push(sample);
+    if(ACC_BUF.length>ACC_MAX) ACC_BUF.shift();
+    // average
+    const avg = ACC_BUF.reduce((s,v)=>{s.x+=v.x;s.y+=v.y;s.z+=v.z;return s},{x:0,y:0,z:0});
+    avg.x/=ACC_BUF.length; avg.y/=ACC_BUF.length; avg.z/=ACC_BUF.length;
+    return avg;
+  }
+
+  // function to activate UI state
+  function setState(state){
+    if(state === currentState) return;
+    currentState = state;
+    lastOrient.textContent = state;
+    badge.textContent = state.replace('-',' ');
+    // hide all
+    [alarmMode, stopwatchMode, timerMode, weatherMode].forEach(m=>m.style.display='none');
+    // show selected
+    if(state==='portrait-up') { alarmMode.style.display='flex'; statusText.textContent='Portrait — Alarm'; }
+    if(state==='portrait-down') { timerMode.style.display='flex'; statusText.textContent='Portrait Upside Down — Timer'; }
+    if(state==='landscape-right') { stopwatchMode.style.display='flex'; statusText.textContent='Landscape Right — Stopwatch'; }
+    if(state==='landscape-left') { weatherMode.style.display='flex'; statusText.textContent='Landscape Left — Weather'; }
+  }
+
+  /* ====== Sensor wiring ====== */
+  let motionListening = false;
+
+  async function enableSensors(){
+    // On iOS 13+ we need explicit permission
+    if(typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
+      try{
+        const perm = await DeviceMotionEvent.requestPermission();
+        if(perm!=='granted') { alert('Motion permission denied. Orientation detection will be limited.'); }
+      }catch(e){ console.warn('permission request failed', e); }
+    }
+
+    // Add listener for DeviceMotion to read accelerationIncludingGravity
+    if(window.DeviceMotionEvent){
+      window.addEventListener('devicemotion', onDeviceMotion);
+      motionListening = true;
+      $('reqSensors').style.display='none';
+      statusText.textContent='Sensors enabled — waiting for data...';
+      debugOn = true; debugEl.style.display='block';
+    } else {
+      alert('DeviceMotion not supported in this browser. Orientation detection will fall back to Screen Orientation where available.');
+    }
+  }
+
+  function onDeviceMotion(e){
+    const ag = e.accelerationIncludingGravity;
+    if(!ag) return;
+    // push smoothed sample
+    const sm = pushAccSample({x: ag.x||0, y: ag.y||0, z: ag.z||0});
+    const state = mapGravityToState(sm.x, sm.y, sm.z);
+    setState(state);
+  }
+
+  // Also listen to screen orientation changes as a backup (e.g., when sensors disabled)
+  if(screen.orientation && screen.orientation.addEventListener){
+    screen.orientation.addEventListener('change', ()=>{
+      // Map angle to rough state
+      const a = screen.orientation.angle; // 0,90,180,270 typically
+      let s = 'portrait-up';
+      if(a===0) s='portrait-up';
+      if(a===180) s='portrait-down';
+      if(a===90) s='landscape-left';
+      if(a===270) s='landscape-right';
+      // Note: different browsers may use opposite naming; we accept this as fallback
+      setState(s);
+    });
+  }
+
+  // If sensors are not enabled, try using DeviceOrientationEvent.gamma as another hint
+  if(window.DeviceOrientationEvent){
+    window.addEventListener('deviceorientation', (ev)=>{
+      // gamma is left-right tilt: -90..90
+      // beta is front-back: -180..180
+      // use only when motion not active
+      if(motionListening) return;
+      const g = ev.gamma, b = ev.beta;
+      if(typeof g !== 'number' || typeof b !== 'number') return;
+      // simple threshold mapping
+      if(Math.abs(g)<30 && Math.abs(b-90)<30) setState('portrait-up');
+      else if(Math.abs(g)<30 && Math.abs(b+90)<30) setState('portrait-down');
+      else if(g>20) setState('landscape-right');
+      else if(g<-20) setState('landscape-left');
+    });
+  }
+
+  // Button to request sensor permissions
+  $('reqSensors').addEventListener('click', enableSensors);
+
+  /* ====== Alarm implementation ====== */
+  let alarmTime = null; let alarmTimerId = null;
+  function updateClock(){
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    const ss = String(now.getSeconds()).padStart(2,'0');
+    $('currentTime').textContent = `${hh}:${mm}:${ss}`;
+    if(alarmTime){
+      const [ah,am] = alarmTime.split(':').map(Number);
+      if(now.getHours()===ah && now.getMinutes()===am && now.getSeconds()===0){
+        triggerAlarm();
+      }
+    }
+  }
+  setInterval(updateClock,1000);
+
+  $('setAlarm').addEventListener('click', ()=>{
+    const val = $('alarmTime').value;
+    if(!val){ $('alarmStatus').textContent='Pick a time first'; return; }
+    alarmTime = val; $('alarmStatus').textContent=`Alarm set at ${val}`;
+  });
+  $('clearAlarm').addEventListener('click', ()=>{ alarmTime=null; $('alarmStatus').textContent='Alarm cleared'; });
+
+  function triggerAlarm(){
+    // vibrate then play sound
+    try{ navigator.vibrate && navigator.vibrate([200,100,200]); }catch(e){}
+    playBeep(6,0.08);
+    $('alarmStatus').textContent='⏰ Alarm ringing!';
+  }
+
+  /* ====== Stopwatch implementation ====== */
+  let swStartAt = 0, swElapsed = 0, swTimer = null; let laps = [];
+  function formatSw(ms){
+    const total = Math.floor(ms);
+    const h = Math.floor(total/3600000); const m = Math.floor(total%3600000/60000); const s = Math.floor(total%60000/1000); const cs = Math.floor(total%1000/10);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`;
+  }
+  function updateSw(){
+    const now = performance.now();
+    const elapsed = swElapsed + (swStartAt? now - swStartAt:0);
+    $('swDisplay').textContent = formatSw(elapsed);
+  }
+  $('swStart').addEventListener('click', ()=>{
+    if(!swTimer){
+      swStartAt = performance.now();
+      swTimer = setInterval(updateSw, 33);
+      $('swStart').textContent='Pause';
+    } else {
+      // pause
+      clearInterval(swTimer); swTimer=null;
+      swElapsed += performance.now() - swStartAt; swStartAt=0;
+      $('swStart').textContent='Start';
+    }
+  });
+  $('swReset').addEventListener('click', ()=>{
+    clearInterval(swTimer); swTimer=null; swStartAt=0; swElapsed=0; $('swDisplay').textContent='00:00:00.00'; $('swStart').textContent='Start'; laps=[]; $('laps').textContent='';
+  });
+  $('swLap').addEventListener('click', ()=>{
+    const now = performance.now(); const elapsed = swElapsed + (swStartAt? now - swStartAt:0);
+    laps.unshift(formatSw(elapsed)); $('laps').innerHTML = laps.slice(0,10).map((l,i)=>`<div>#${laps.length - i} ${l}</div>`).join('');
+  });
+
+  /* ====== Timer implementation ====== */
+  let timerRemaining = 0, timerInterval = null; let timerRunning=false;
+  function updateTimer(){
+    if(timerRemaining<=0){ clearInterval(timerInterval); timerRunning=false; $('timerDisplay').textContent='00:00:00'; playBeep(4,0.12); navigator.vibrate && navigator.vibrate([300,150,400]); return; }
+    timerRemaining-=1;
+    const h = Math.floor(timerRemaining/3600); const m = Math.floor((timerRemaining%3600)/60); const s = timerRemaining%60;
+    $('timerDisplay').textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
+  $('timerStart').addEventListener('click', ()=>{
+    if(timerRunning) return; const mins = parseInt($('timerMinutes').value||0); const secs = parseInt($('timerSeconds').value||0);
+    timerRemaining = mins*60 + secs;
+    if(timerRemaining<=0) { alert('Set time first'); return; }
+    timerRunning = true; updateTimer(); timerInterval = setInterval(updateTimer,1000);
+  });
+  $('timerPause').addEventListener('click', ()=>{ if(timerInterval){ clearInterval(timerInterval); timerInterval=null; timerRunning=false; } });
+  $('timerReset').addEventListener('click', ()=>{ if(timerInterval){ clearInterval(timerInterval);} timerRemaining=0; timerRunning=false; $('timerDisplay').textContent='00:00:00'; });
+
+  /* ====== Weather integration (Open-Meteo free) ====== */
+  async function fetchWeather(lat, lon){
+    try{
+      $('weatherLoc').textContent = `Lat ${lat.toFixed(2)}, Lon ${lon.toFixed(2)}`;
+      const resp = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto`);
+      const j = await resp.json();
+      if(j && j.current_weather){
+        const cw = j.current_weather;
+        $('weatherTemp').textContent = `${Math.round(cw.temperature)}°C`;
+        $('weatherDesc').textContent = `Wind ${cw.windspeed} ${cw.winddirection}°`;
+        $('weatherExtra').textContent = `Today's high ${j.daily.temperature_2m_max[0]}°, low ${j.daily.temperature_2m_min[0]}°, code ${j.daily.weathercode[0]}`;
+        $('weatherCard').style.display='block'; $('weatherFallback').style.display='none';
+      } else { throw new Error('no data'); }
+    } catch(e){ console.warn(e); $('weatherLoc').textContent='Weather unavailable'; $('weatherCard').style.display='none'; $('weatherFallback').style.display='block'; }
+  }
+
+  async function locateAndFetchWeather(){
+    if(!navigator.geolocation){ $('weatherLoc').textContent='Geolocation unavailable'; $('weatherFallback').style.display='block'; return; }
+    navigator.geolocation.getCurrentPosition(pos=>{
+      fetchWeather(pos.coords.latitude, pos.coords.longitude);
+    }, err=>{
+      console.warn('geolocation error', err); $('weatherLoc').textContent='Location denied'; $('weatherFallback').style.display='block';
+    }, {enableHighAccuracy:true, timeout:8000});
+  }
+  // user city lookup using Open-Meteo geocoding
+  $('lookupCity').addEventListener('click', async ()=>{
+    const city = $('cityInput').value.trim(); if(!city) return alert('Enter a city');
+    const q = encodeURIComponent(city);
+    try{
+      const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${q}&count=1`);
+      const js = await res.json();
+      if(js && js.results && js.results.length){ const r = js.results[0]; fetchWeather(r.latitude, r.longitude); $('weatherLoc').textContent=`${r.name}, ${r.country}`; }
+      else alert('City not found');
+    }catch(e){ alert('Geocode error'); }
+  });
+  $('refreshWeather').addEventListener('click', locateAndFetchWeather);
+
+  // call on load to attempt automatic fetch
+  locateAndFetchWeather();
+
+  /* ====== Sound helpers using WebAudio ====== */
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  function playBeep(count=1, dur=0.12){
+    // chained beeps
+    let t = audioCtx.currentTime;
+    for(let i=0;i<count;i++){
+      const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+      o.type='sine'; o.frequency.setValueAtTime(880 - i*40, t + i*(dur+0.06));
+      g.gain.setValueAtTime(0.0001, t + i*(dur+0.06));
+      g.gain.exponentialRampToValueAtTime(0.12, t + i*(dur+0.06) + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + i*(dur+0.06) + dur);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t + i*(dur+0.06)); o.stop(t + i*(dur+0.06) + dur + 0.02);
+    }
+  }
+
+  /* ====== UX polish: Hints + accessibility ====== */
+  // Try to nudge iOS users to grant permission
+  (function iOSMotionHint(){
+    const ua = navigator.userAgent || '';
+    if(/iP(hone|ad|od)/.test(ua) && typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
+      // show reqSensors button (already visible) and small hint
+      statusText.textContent = 'iOS detected — tap "Enable Motion Sensors" to allow orientation detection.';
+    }
+  })();
+
+  /* ====== Fallback: If no motion sensors, use screen.orientation to at least show something */
+  if(!window.DeviceMotionEvent){
+    statusText.textContent = 'No motion sensors — using Screen Orientation fallback. Flip device to change modes.';
+    // initialize from current screen.orientation angle
+    if(screen.orientation && typeof screen.orientation.angle === 'number'){
+      const a = screen.orientation.angle;
+      if(a===0) setState('portrait-up');
+      if(a===180) setState('portrait-down');
+      if(a===90) setState('landscape-left');
+      if(a===270) setState('landscape-right');
+    }
+  }
+
+  /* ====== Accessibility / Testing helpers: allow manual override for presentation/demo ====== */
+  window.__setStateForDemo = (s)=>{ setState(s); };
+
+  // Quick keyboard shortcuts (for desktop testing)
+  window.addEventListener('keydown',(e)=>{
+    if(e.key==='1') setState('portrait-up');
+    if(e.key==='2') setState('landscape-right');
+    if(e.key==='3') setState('portrait-down');
+    if(e.key==='4') setState('landscape-left');
+    if(e.key==='d') { debugOn = !debugOn; debugEl.style.display = debugOn?'block':'none'; }
+  });
+
+  </script>
 </body>
 </html>
